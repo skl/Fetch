@@ -323,7 +323,7 @@ class Message
     {
         if ($html) {
             if (!isset($this->htmlMessage) && isset($this->plaintextMessage)) {
-                $output = nl2br($this->plaintextMessage);
+                $output = nl2br(htmlentities($this->plaintextMessage));
 
                 return $output;
 
