@@ -93,9 +93,9 @@ class Attachment
         $parameters = Message::getParametersFromStructure($structure);
 
         if (isset($parameters['filename'])) {
-            $this->filename = $parameters['filename'];
+            $this->filename = $message->rfc1342Decode($parameters['filename']);
         } elseif (isset($parameters['name'])) {
-            $this->filename = $parameters['name'];
+            $this->filename = $message->rfc1342Decode($parameters['name']);
         }
 
         $this->size = $structure->bytes;
