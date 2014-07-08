@@ -191,43 +191,47 @@ class Message
         $this->mailbox        = $connection->getMailBox();
         $this->uid            = $messageUniqueId;
         $this->imapStream     = $this->imapConnection->getImapStream();
-        if($this->loadMessage() !== true)
+
+        if ($this->loadMessage() !== true) {
             throw new \RuntimeException('Message with ID ' . $messageUniqueId . ' not found.');
+        }
     }
 
     /**
      * This function is called when the message class is loaded. It loads general information about the message from the
      * imap server.
      *
+     * @return bool
      */
     protected function loadMessage()
     {
-
         /* First load the message overview information */
-
-        if(!is_object($messageOverview = $this->getOverview()))
-
+        if (!is_object($messageOverview = $this->getOverview())) {
             return false;
+        }
 
         $this->subject = isset($messageOverview->subject) ? $this->rfc1342Decode($messageOverview->subject) : null;
         $this->date    = strtotime($messageOverview->date);
         $this->size    = $messageOverview->size;
 
-        foreach (self::$flagTypes as $flag)
+        foreach (self::$flagTypes as $flag) {
             $this->status[$flag] = ($messageOverview->$flag == 1);
+        }
 
         /* Next load in all of the header information */
-
         $headers = $this->getHeaders();
 
-        if (isset($headers->to))
+        if (isset($headers->to)) {
             $this->to = $this->processAddressObject($headers->to);
+        }
 
-        if (isset($headers->cc))
+        if (isset($headers->cc)) {
             $this->cc = $this->processAddressObject($headers->cc);
+        }
 
-        if (isset($headers->bcc))
+        if (isset($headers->bcc)) {
             $this->bcc = $this->processAddressObject($headers->bcc);
+        }
 
         $this->from    = $this->processAddressObject($headers->from);
         $this->replyTo = isset($headers->reply_to) ? $this->processAddressObject($headers->reply_to) : $this->from;
@@ -241,8 +245,9 @@ class Message
             $this->processStructure($structure);
         } else {
             // multipart
-            foreach ($structure->parts as $id => $part)
+            foreach ($structure->parts as $id => $part) {
                 $this->processStructure($part, $id + 1);
+            }
         }
 
         return true;
@@ -332,7 +337,7 @@ class Message
             }
         } else {
             if (!isset($this->plaintextMessage) && isset($this->htmlMessage)) {
-                $output = preg_replace('/\<br(\s*)?\/?\>/i', PHP_EOL, trim($this->htmlMessage) );
+                $output = preg_replace('/\<br(\s*)?\/?\>/i', PHP_EOL, trim($this->htmlMessage));
                 $output = strip_tags($output);
 
                 return $output;
@@ -357,21 +362,25 @@ class Message
         $type = ( $type == 'reply-to' ) ? 'replyTo' : $type;
         $addressTypes = array('to', 'cc', 'bcc', 'from', 'replyTo');
 
-        if (!in_array($type, $addressTypes) || !isset($this->$type) || count($this->$type) < 1)
+        if (!in_array($type, $addressTypes) || !isset($this->$type) || count($this->$type) < 1) {
             return false;
+        }
 
         if (!$asString) {
-            if ($type == 'from')
+            if ($type == 'from') {
                 return $this->from[0];
+            }
 
             return $this->$type;
         } else {
             $outputString = '';
             foreach ($this->$type as $address) {
-                if (isset($set))
+                if (isset($set)) {
                     $outputString .= ', ';
-                if (!isset($set))
+                }
+                if (!isset($set)) {
                     $set = true;
+                }
 
                 $outputString .= isset($address['name']) ?
                     $address['name'] . ' <' . $address['address'] . '>'
@@ -472,8 +481,9 @@ class Message
             foreach ($structure->parts as $partIndex => $part) {
                 $partId = $partIndex + 1;
 
-                if (isset($partIdentifier))
+                if (isset($partIdentifier)) {
                     $partId = $partIdentifier . '.' . $partId;
+                }
 
                 $this->processStructure($part, $partId);
             }
@@ -483,7 +493,7 @@ class Message
     /**
      * Detects an RFC 1342 encoded string and decodes it if necessary
      *
-     * @param string $data
+     * @param  string $data
      * @return string
      */
     public function rfc1342Decode($data)
@@ -506,9 +516,9 @@ class Message
     /**
      * Convert $data to the another encoding
      *
-     * @param string $data
-     * @param string $toEncoding
-     * @param string $fromEncoding
+     * @param  string $data
+     * @param  string $toEncoding
+     * @param  string $fromEncoding
      * @return string
      */
     public function convertEncoding($data, $toEncoding, $fromEncoding = null)
@@ -596,13 +606,17 @@ class Message
     public static function getParametersFromStructure($structure)
     {
         $parameters = array();
-        if (isset($structure->parameters))
-            foreach ($structure->parameters as $parameter)
+        if (isset($structure->parameters)) {
+            foreach ($structure->parameters as $parameter) {
                 $parameters[strtolower($parameter->attribute)] = $parameter->value;
+            }
+        }
 
-        if (isset($structure->dparameters))
-            foreach ($structure->dparameters as $parameter)
+        if (isset($structure->dparameters)) {
+            foreach ($structure->dparameters as $parameter) {
                 $parameters[strtolower($parameter->attribute)] = $parameter->value;
+            }
+        }
 
         return $parameters;
     }
@@ -617,14 +631,16 @@ class Message
     protected function processAddressObject($addresses)
     {
         $outputAddresses = array();
-        if (is_array($addresses))
+        if (is_array($addresses)) {
             foreach ($addresses as $address) {
                 $currentAddress            = array();
                 $currentAddress['address'] = $address->mailbox . '@' . $address->host;
-                if (isset($address->personal))
+                if (isset($address->personal)) {
                     $currentAddress['name'] = $address->personal;
+                }
                 $outputAddresses[] = $currentAddress;
             }
+        }
 
         return $outputAddresses;
     }
@@ -648,16 +664,19 @@ class Message
      */
     public function getAttachments($filename = null)
     {
-        if (!isset($this->attachments) || count($this->attachments) < 1)
+        if (!isset($this->attachments) || count($this->attachments) < 1) {
             return false;
+        }
 
-        if (!isset($filename))
+        if (!isset($filename)) {
             return $this->attachments;
+        }
 
         $results = array();
         foreach ($this->attachments as $attachment) {
-            if ($attachment->getFileName() == $filename)
+            if ($attachment->getFileName() == $filename) {
                 $results[] = $attachment;
+            }
         }
 
         switch (count($results)) {
@@ -694,8 +713,9 @@ class Message
      */
     public function setFlag($flag, $enable = true)
     {
-        if (!in_array($flag, self::$flagTypes) || $flag == 'recent')
+        if (!in_array($flag, self::$flagTypes) || $flag == 'recent') {
             throw new \InvalidArgumentException('Unable to set invalid flag "' . $flag . '"');
+        }
 
         $imapifiedFlag = '\\' . ucfirst($flag);
 
