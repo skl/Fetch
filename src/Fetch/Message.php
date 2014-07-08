@@ -209,7 +209,7 @@ class Message
 
             return false;
 
-        $this->subject = isset($messageOverview->subject) ? $messageOverview->subject : null;
+        $this->subject = isset($messageOverview->subject) ? $this->rfc1342Decode($messageOverview->subject) : null;
         $this->date    = strtotime($messageOverview->date);
         $this->size    = $messageOverview->size;
 
@@ -445,11 +445,7 @@ class Message
             $messageBody = self::decode($messageBody, $structure->encoding);
 
             if (!empty($parameters['charset']) && $parameters['charset'] !== self::$charset) {
-                if (function_exists('mb_convert_encoding')) {
-                    $messageBody = mb_convert_encoding($messageBody, self::$charset, $parameters['charset']);
-                } else {
-                    $messageBody = iconv($parameters['charset'], self::$charset . self::$charsetFlag, $messageBody);
-                }
+                $messageBody = $this->convertEncoding($messageBody, $parameters['charset']);
             }
 
             if (strtolower($structure->subtype) === 'plain' || ($structure->type == 1 && strtolower($structure->subtype) !== 'alternative')) {
@@ -482,6 +478,52 @@ class Message
                 $this->processStructure($part, $partId);
             }
         }
+    }
+
+    /**
+     * Detects an RFC 1342 encoded string and decodes it if necessary
+     *
+     * @link http://tools.ietf.org/html/rfc1342
+     *
+     * @param string $data
+     * @return string
+     */
+    public function rfc1342Decode($data)
+    {
+        // =?charset?encoding?encoded-text?=
+        if (1 === preg_match('/=\?([A-Z0-9\-]+)\?(B|Q)\?([^\?]+)\?=/i', $data, $matches)) {
+            if (0 === strcasecmp('B', $matches[2])) {
+                $data = base64_decode($matches[3]);
+            } else {
+                $data = quoted_printable_decode($matches[3]);
+            }
+
+            $data = $this->convertEncoding($data, $matches[1]);
+            $data = str_replace('_', ' ', $data);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Convert $data to the another encoding
+     *
+     * @param string $data
+     * @param string $toEncoding
+     * @param string $fromEncoding
+     * @return string
+     */
+    public function convertEncoding($data, $toEncoding, $fromEncoding = null)
+    {
+        if (function_exists('mb_convert_encoding')) {
+            if (in_array($toEncoding, mb_list_encodings())) {
+                return mb_convert_encoding($data, ($fromEncoding) ?: self::$charset, $toEncoding);
+            } else {
+                return mb_convert_encoding($data, ($fromEncoding) ?: self::$charset);
+            }
+        }
+
+        return iconv($toEncoding, ($fromEncoding) ?: self::$charset . self::$charsetFlag, $data);
     }
 
     /**
