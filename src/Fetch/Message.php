@@ -483,8 +483,6 @@ class Message
     /**
      * Detects an RFC 1342 encoded string and decodes it if necessary
      *
-     * @link http://tools.ietf.org/html/rfc1342
-     *
      * @param string $data
      * @return string
      */
