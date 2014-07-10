@@ -21,6 +21,19 @@ namespace Fetch;
 class Message
 {
     /**
+     * Primary Body Types
+     * According to http://www.php.net/manual/en/function.imap-fetchstructure.php
+     */
+    const TYPE_TEXT = 0;
+    const TYPE_MULTIPART = 1;
+    const TYPE_MESSAGE = 2;
+    const TYPE_APPLICATION = 3;
+    const TYPE_AUDIO = 4;
+    const TYPE_IMAGE = 5;
+    const TYPE_VIDEO = 6;
+    const TYPE_OTHER = 7;
+
+    /**
      * This is the connection/mailbox class that the email came from.
      *
      * @var Server
@@ -233,7 +246,7 @@ class Message
             $this->bcc = $this->processAddressObject($headers->bcc);
         }
 
-        $this->from    = $this->processAddressObject($headers->from);
+        $this->from    = isset($headers->from) ? $this->processAddressObject($headers->from) : $this->from;
         $this->replyTo = isset($headers->reply_to) ? $this->processAddressObject($headers->reply_to) : $this->from;
 
         /* Finally load the structure itself */
@@ -246,6 +259,21 @@ class Message
         } else {
             // multipart
             foreach ($structure->parts as $id => $part) {
+                if (!empty($part->description)) {
+                    $cleanFilename = $this->makeFilenameSafe($part->description);
+                    $part->description = $cleanFilename;
+                    foreach ($part->parameters as $key => $parameter) {
+                        if ($parameter->attribute === "name") {
+                            $part->parameters[$key]->value = $cleanFilename;
+                        }
+                    }
+                    foreach ($part->dparameters as $key => $dparameter) {
+                        if ($dparameter->attribute === "filename") {
+                            $part->dparameters[$key]->value = $cleanFilename;
+                        }
+                    }
+                }
+
                 $this->processStructure($part, $id + 1);
             }
         }
@@ -433,6 +461,98 @@ class Message
     }
 
     /**
+     * Adds an attachment
+     *
+     * If a filename is not provided and the attachment is a message/rfc822
+     * email, parse the Subject line and use it as the filename. If the Subject
+     * line is blank or illegible, use a default filename (like Gmail and some
+     * desktop clients do)
+     *
+     * @param array     $parameters
+     * @param \stdClass $structure
+     * @param string    $partIdentifier
+     * @return boolean Successful attachment of file
+     */
+    protected function addAttachment($parameters, $structure, $partIdentifier)
+    {
+        if (!(isset($parameters["name"]) || isset($parameters["filename"])) && $structure->type == self::TYPE_MESSAGE) {
+            $body = isset($partIdentifier) ?
+                imap_fetchbody($this->imapStream, $this->uid, $partIdentifier, FT_UID)
+                : imap_body($this->imapStream, $this->uid, FT_UID);
+
+            $headers = iconv_mime_decode_headers($body, 0, self::$charset);
+            $filename = !empty($headers["Subject"]) ? $this->makeFilenameSafe($headers["Subject"]) : "email";
+
+            $dpar = new \stdClass();
+            $dpar->attribute = "filename";
+            $dpar->value = str_replace(array("\r", "\n"), '', $filename) . ".eml";
+            $structure->dparameters[] = $dpar;
+        }
+
+        try {
+            $attachment          = new Attachment($this, $structure, $partIdentifier);
+            $this->attachments[] = $attachment;
+
+            return true;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * This function extracts the body of an email part, strips harmful
+     * Outlook-specific strings from it, processes any encoded one-liners,
+     * decodes it, converts it to the charset of the parent message, and
+     * returns the result.
+     *
+     * @param array     $parameters
+     * @param \stdClass $structure
+     * @param string    $partIdentifier
+     * @return string
+     */
+    protected function processBody($structure, $partIdentifier)
+    {
+        $rawBody = isset($partIdentifier) ?
+                imap_fetchbody($this->imapStream, $this->uid, $partIdentifier, FT_UID)
+                : imap_body($this->imapStream, $this->uid, FT_UID);
+
+        $bodyNoOutlook = $this->stripOutlookSpecificStrings($rawBody);
+
+        $decodedBody = self::decode($bodyNoOutlook, $structure->encoding);
+
+        $decodedBody = $this->convertCharacterEncoding($decodedBody);
+
+        return $decodedBody;
+    }
+
+    /**
+     * Removes "Thread-Index:" line from the message body which is placed there
+     * by Outlook and messes up the other processing steps.
+     *
+     * @param string $messageBody
+     * @return string
+     */
+    protected function stripOutlookSpecificStrings($bodyBefore)
+    {
+        $bodyAfter = preg_replace('/Thread-Index:.*$/m', "", $bodyBefore);
+
+        return $bodyAfter;
+    }
+
+    /**
+     * This function takes in a string to be used as a filename and replaces
+     * any dangerous characters with underscores to ensure compatibility with
+     * various file systems
+     *
+     * @param string $oldName
+     * @return string
+     */
+    protected function makeFilenameSafe($oldName)
+    {
+        return preg_replace('/[<>"{}|\\\^\[\]`;\/\?:@&=$,]/',"_", $oldName);
+    }
+
+    /**
      * This function takes in a structure and identifier and processes that part of the message. If that portion of the
      * message has its own subparts, those are recursively processed using this function.
      *
@@ -441,23 +561,18 @@ class Message
      */
     protected function processStructure($structure, $partIdentifier = null)
     {
-        $parameters = self::getParametersFromStructure($structure);
+        $attached = false;
 
-        if (isset($parameters['name']) || isset($parameters['filename'])) {
-            $attachment          = new Attachment($this, $structure, $partIdentifier);
-            $this->attachments[] = $attachment;
-        } elseif ($structure->type == 0 || $structure->type == 1) {
-            $messageBody = isset($partIdentifier) ?
-                imap_fetchbody($this->imapStream, $this->uid, $partIdentifier, FT_UID)
-                : imap_body($this->imapStream, $this->uid, FT_UID);
+        // TODO: Get HTML attachments working, too!
+        if (isset($structure->disposition) && $structure->disposition == "attachment") {
+            $parameters = self::getParametersFromStructure($structure);
+            $attached = $this->addAttachment($parameters, $structure, $partIdentifier);
+        }
 
-            $messageBody = self::decode($messageBody, $structure->encoding);
+        if (!$attached && ($structure->type == self::TYPE_TEXT || $structure->type == self::TYPE_MULTIPART)) {
+            $messageBody = $this->processBody($structure, $partIdentifier);
 
-            if (!empty($parameters['charset']) && $parameters['charset'] !== self::$charset) {
-                $messageBody = $this->convertEncoding($messageBody, $parameters['charset']);
-            }
-
-            if (strtolower($structure->subtype) === 'plain' || ($structure->type == 1 && strtolower($structure->subtype) !== 'alternative')) {
+            if (strtolower($structure->subtype) === 'plain' || ($structure->type == self::TYPE_MULTIPART && strtolower($structure->subtype) !== 'alternative')) {
                 if (isset($this->plaintextMessage)) {
                     $this->plaintextMessage .= PHP_EOL . PHP_EOL;
                 } else {
@@ -474,18 +589,17 @@ class Message
 
                 $this->htmlMessage .= $messageBody;
             }
-        }
 
-        if (isset($structure->parts)) { // multipart: iterate through each part
+            if (isset($structure->parts)) { // multipart: iterate through each part
+                foreach ($structure->parts as $partIndex => $part) {
+                    $partId = $partIndex + 1;
 
-            foreach ($structure->parts as $partIndex => $part) {
-                $partId = $partIndex + 1;
+                    if (isset($partIdentifier)) {
+                        $partId = $partIdentifier . '.' . $partId;
+                    }
 
-                if (isset($partIdentifier)) {
-                    $partId = $partIdentifier . '.' . $partId;
+                    $this->processStructure($part, $partId);
                 }
-
-                $this->processStructure($part, $partId);
             }
         }
     }
@@ -506,7 +620,7 @@ class Message
                 $data = quoted_printable_decode($matches[3]);
             }
 
-            $data = $this->convertEncoding($data, $matches[1]);
+            $data = $this->convertCharacterEncoding($data, $matches[1]);
             $data = str_replace('_', ' ', $data);
         }
 
@@ -517,21 +631,44 @@ class Message
      * Convert $data to the another encoding
      *
      * @param  string $data
-     * @param  string $toEncoding
      * @param  string $fromEncoding
      * @return string
      */
-    public function convertEncoding($data, $toEncoding, $fromEncoding = null)
+    public function convertCharacterEncoding($data, $fromEncoding = null)
     {
         if (function_exists('mb_convert_encoding')) {
-            if (in_array($toEncoding, mb_list_encodings())) {
-                return mb_convert_encoding($data, ($fromEncoding) ?: self::$charset, $toEncoding);
+            if (is_null($fromEncoding)) {
+                $fromEncoding = mb_detect_encoding($data, [
+                    'US-ASCII',
+                    'ISO-8859-1',
+                    'UTF-8',
+                    'UTF-7',
+                    'ASCII',
+                    'EUC-JP',
+                    'SJIS',
+                    'eucJP-win',
+                    'SJIS-win',
+                    'JIS',
+                    'ISO-2022-JP',
+                    'UTF-16',
+                    'UTF-32',
+                    'UCS2',
+                    'UCS4'
+                ]);
+            }
+
+            if ($fromEncoding === self::$charset) {
+                return $data;
             } else {
-                return mb_convert_encoding($data, ($fromEncoding) ?: self::$charset);
+                return mb_convert_encoding($data, self::$charset, $fromEncoding);
             }
         }
 
-        return iconv($toEncoding, ($fromEncoding) ?: self::$charset . self::$charsetFlag, $data);
+        if ($fromEncoding === self::$charset) {
+            return $data;
+        } else {
+            return iconv($fromEncoding, self::$charset . self::$charsetFlag, $data);
+        }
     }
 
     /**
