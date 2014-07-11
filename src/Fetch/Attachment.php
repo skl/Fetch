@@ -109,11 +109,11 @@ class Attachment
     }
 
     /**
-     * This function returns the data of the attachment. Combined with 
+     * This function returns the data of the attachment. Combined with
      * getMimeType() it can be used to directly output data to a browser.
-     * 
-     * If the attachment file is message/rfc822, skip processing/decoding the 
-     * contents in order to avoid mangling the file. Otherwise, decode as 
+     *
+     * If the attachment file is message/rfc822, skip processing/decoding the
+     * contents in order to avoid mangling the file. Otherwise, decode as
      * normal to ensure other files are handled correctly.
      *
      * @return string
@@ -125,7 +125,7 @@ class Attachment
                 imap_fetchbody($this->imapStream, $this->messageId, $this->partId, FT_UID)
                 : imap_body($this->imapStream, $this->messageId, FT_UID);
 
-            if (strpos(strtolower($this->mimeType), "rfc822") !== false) {
+            if (0 === strcasecmp('message/rfc822', $this->mimeType)) {
                 $this->data = $rawBody;
             } else {
                 $decodedBody = Message::decode($rawBody, $this->encoding);
@@ -211,19 +211,22 @@ class Attachment
         if (($filePointer = fopen($path, 'w')) == false)
             return false;
 
-        switch ($this->encoding) {
-        case 3:
-        case 'base64':
-            $streamFilter = stream_filter_append($filePointer, 'convert.base64-decode', STREAM_FILTER_WRITE);
-            break;
+        $streamFilter = null;
+        if (0 !== strcasecmp('message/rfc822', $this->mimeType)) {
+            switch ($this->encoding) {
+            case 3:
+            case 'base64':
+                $streamFilter = stream_filter_append($filePointer, 'convert.base64-decode', STREAM_FILTER_WRITE);
+                break;
 
-        case 4:
-        case 'quoted-printable':
-            $streamFilter = stream_filter_append($filePointer, 'convert.quoted-printable', STREAM_FILTER_WRITE);
-            break;
+            case 4:
+            case 'quoted-printable':
+                $streamFilter = stream_filter_append($filePointer, 'convert.quoted-printable', STREAM_FILTER_WRITE);
+                break;
 
-        default:
-            $streamFilter = null;
+            default:
+                break;
+            }
         }
 
         $result = imap_savebody($this->imapStream, $filePointer, $this->messageId, $this->partId ?: 1, FT_UID);
