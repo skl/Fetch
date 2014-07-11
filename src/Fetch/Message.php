@@ -638,7 +638,7 @@ class Message
     {
         if (function_exists('mb_convert_encoding')) {
             if (is_null($fromEncoding)) {
-                $fromEncoding = mb_detect_encoding($data, [
+                $fromEncoding = mb_detect_encoding($data, array(
                     'US-ASCII',
                     'ISO-8859-1',
                     'UTF-8',
@@ -654,7 +654,7 @@ class Message
                     'UTF-32',
                     'UCS2',
                     'UCS4'
-                ]);
+                ));
             }
 
             if ($fromEncoding === self::$charset) {
@@ -870,8 +870,7 @@ class Message
     /**
      * This function is used to move a mail to the given mailbox.
      *
-     * @param $mailbox
-     *
+     * @param  $mailbox
      * @return bool
      */
     public function moveToMailBox($mailbox)
