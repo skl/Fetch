@@ -562,11 +562,17 @@ class Message
     protected function processStructure($structure, $partIdentifier = null)
     {
         $attached = false;
+        $parameters = self::getParametersFromStructure($structure);
 
         // TODO: Get HTML attachments working, too!
-        if (isset($structure->disposition) && $structure->disposition == "attachment") {
-            $parameters = self::getParametersFromStructure($structure);
+        switch (true) {
+        case (isset($parameters['name']) || isset($parameters['filename'])):
+        case (isset($structure->disposition) && $structure->disposition == "attachment"):
             $attached = $this->addAttachment($parameters, $structure, $partIdentifier);
+            break;
+
+        default:
+            break;
         }
 
         if (!$attached && ($structure->type == self::TYPE_TEXT || $structure->type == self::TYPE_MULTIPART)) {
