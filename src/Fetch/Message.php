@@ -318,7 +318,7 @@ class Message
             $headerObject = imap_rfc822_parse_headers($rawHeaders);
 
             // to keep this object as close as possible to the original header object we add the udate property
-            $headerObject->udate = strtotime($headerObject->date);
+            $headerObject->udate = isset($headerObject->date) ? strtotime($headerObject->date) : null;
 
             $this->headers = $headerObject;
         }
